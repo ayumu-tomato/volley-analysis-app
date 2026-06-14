@@ -85,15 +85,22 @@ def draw_court(ax, type='normal'):
     ax.add_patch(patches.Rectangle((-3, -3), 15, 24, fc='#e0e0e0', ec='none', zorder=0))
     # コート
     ax.add_patch(patches.Rectangle((0, 0), 9, 18, lw=2, ec='black', fc='#FFCC99', zorder=1))
-    ax.plot([0,9], [9,9], c='red', lw=4, zorder=2) # ネット
-    ax.plot([0,9], [6,6], c='black', lw=2, zorder=2)
-    ax.plot([0,9], [12,12], c='black', lw=2, zorder=2)
+    
+    # ★ 変更点: 9分割用の薄い点線
+    ax.plot([3,3], [0,18], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
+    ax.plot([6,6], [0,18], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
+    ax.plot([0,9], [3,3], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
+    ax.plot([0,9], [15,15], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
+    
+    # アタックラインとセンターライン
+    ax.plot([0,9], [9,9], c='red', lw=4, zorder=3) # ネット
+    ax.plot([0,9], [6,6], c='black', lw=2, zorder=3)
+    ax.plot([0,9], [12,12], c='black', lw=2, zorder=3)
     
     # 左右の表示幅
     ax.set_xlim(-3.5, 12.5)
     
-    # ★変更点: 分析時に「下半分のコート（着地点）」をメインにフォーカスさせる
-    # 下のエンドライン奥（-3.5）から、相手コートのアタックライン奥（13.5）までを表示
+    # 分析時に「下半分のコート（着地点）」をメインにフォーカス
     ax.set_ylim(-3.5, 13.5)
         
     ax.set_aspect('equal')
@@ -126,8 +133,8 @@ def create_attack_map(data, title):
             shrink = 0.85
             ec = 'black' if c == 'gold' else c
             ax.arrow(sx, sy, dx*shrink, dy*shrink, width=0.08, head_width=0.3, head_length=0.4, 
-                     fc=c, ec=ec, alpha=a, length_includes_head=True, zorder=3)
-            ax.scatter(sx + dx*shrink, sy + dy*shrink, color=c, s=15, zorder=4, edgecolors='black', linewidth=0.5)
+                     fc=c, ec=ec, alpha=a, length_includes_head=True, zorder=4)
+            ax.scatter(sx + dx*shrink, sy + dy*shrink, color=c, s=15, zorder=5, edgecolors='black', linewidth=0.5)
 
     return fig
 
