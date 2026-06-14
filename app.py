@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.subplots as subplots
+import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 from matplotlib import font_manager
@@ -8,7 +8,6 @@ import urllib.request
 import re
 import os
 import tempfile
-import matplotlib.pyplot as plt
 
 # PDF生成用ライブラリの読み込み
 try:
@@ -146,13 +145,12 @@ def create_attack_map(data, title):
     return fig
 
 # ==========================================
-# ★ 強化版 PDF生成ロジック（選手別マップ対応）
+# ★ PDF生成ロジック
 # ==========================================
 def generate_pdf_report(df_analytics, selected_sets, att, rec, fbso_rate, tr_rate, err_rate):
     pdf = FPDF()
     pdf.add_page()
     
-    # フォントの設定
     font_path = "ipaexg.ttf"
     has_jp_font = os.path.exists(font_path)
     if has_jp_font:
@@ -161,7 +159,6 @@ def generate_pdf_report(df_analytics, selected_sets, att, rec, fbso_rate, tr_rat
     else:
         pdf.set_font('helvetica', size=16)
         
-    # --- 1ページ目：全体サマリーと全体マップ ---
     sets_str = ", ".join(selected_sets)
     pdf.cell(0, 10, f"Volleyball Analysis Report (Sets: {sets_str})", ln=True, align='C')
     pdf.ln(5)
@@ -178,14 +175,11 @@ def generate_pdf_report(df_analytics, selected_sets, att, rec, fbso_rate, tr_rat
         fig = create_attack_map(att, "Attack Map (All)")
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
             fig.savefig(tmpfile.name, format="png", bbox_inches="tight", dpi=150)
-            # 全体マップは中央に大きめに配置
             pdf.image(tmpfile.name, x=45, y=pdf.get_y(), w=120)
         os.unlink(tmpfile.name)
         plt.close(fig)
         
-    # --- 2ページ目以降：選手別の個別マップ ---
     if not att.empty:
-        # スパイクを打った選手のみ抽出
         players = sorted(att['player'].dropna().unique())
         if len(players) > 0:
             pdf.add_page()
@@ -193,10 +187,9 @@ def generate_pdf_report(df_analytics, selected_sets, att, rec, fbso_rate, tr_rat
             pdf.cell(0, 10, "Player-Specific Attack Maps", ln=True, align='C')
             pdf.ln(5)
             
-            # グリッドレイアウト（2列で配置）用の設定
-            x_positions = [20, 115] # 左右のX座標
-            img_width = 80          # 画像の幅
-            img_height = 104        # 画像のおおよその高さ
+            x_positions = [20, 115]
+            img_width = 80
+            img_height = 104
             
             current_y = pdf.get_y()
             col = 0
@@ -213,17 +206,14 @@ def generate_pdf_report(df_analytics, selected_sets, att, rec, fbso_rate, tr_rat
                 plt.close(fig)
                 
                 col += 1
-                # 2列埋まったら次の行へ
                 if col > 1:
                     col = 0
-                    current_y += img_height + 10 # 下へ移動
-                    # ページの下部にはみ出す場合は改ページ
+                    current_y += img_height + 10
                     if current_y > 270 - img_height:
                         pdf.add_page()
                         current_y = 20
 
     return bytes(pdf.output())
-
 
 # ==========================================
 # 2. アプリ画面構築
@@ -391,14 +381,11 @@ if df is not None:
                 err_rate = f"{e/len(att)*100:.1f}%"
             s3.metric("Attack Error %", err_rate)
             
-            # ==========================================
-            # 3. PDFエクスポート セクション
-            # ==========================================
             st.markdown("---")
             st.subheader("3. レポートの出力")
             
             if not HAS_FPDF:
-                st.error("PDFを出力するには `fpdf2` ライブラリが必要です。`pip install fpdf2` を実行してください。")
+                st.error("PDFを出力するには `fpdf2` ライブラリが必要です。`requirements.txt` を確認してください。")
             else:
                 with st.expander("📄 PDFレポートを作成する", expanded=True):
                     st.write("全体スタッツと**選手別のアタックマップ**を含むPDF形式のレポートを作成します。")
