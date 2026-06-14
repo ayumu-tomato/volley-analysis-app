@@ -8,6 +8,7 @@ import urllib.request
 import re
 import os
 import tempfile
+import io  # ★ 画像単体ダウンロード用に追加
 
 # PDF生成用ライブラリの読み込み
 try:
@@ -305,11 +306,52 @@ if df is not None:
                 * 🟠 **" (Good):** 相手を崩した
                 """)
 
-            with st.expander("👤 選手別マップを見る"):
-                target_player = st.selectbox("選手を選択:", sorted(df['player'].unique()))
-                p_att = att[att['player']==target_player]
-                if len(p_att)>0: st.pyplot(create_attack_map(p_att, target_player))
-                else: st.caption("No Attack Data")
+            # ==========================================
+            # ★ 変更点: 選手別のコンボ絞り込みと画像単体DL機能
+            # ==========================================
+            with st.expander("👤 選手別マップを見る / ダウンロード", expanded=True):
+                p_col1, p_col2 = st.columns(2)
+                
+                # 選手選択
+                with p_col1:
+                    target_player = st.selectbox("選手を選択:", sorted(df['player'].unique()))
+                
+                # コンボ選択（その選手が打ったコンボのみを表示）
+                with p_col2:
+                    if not att.empty:
+                        player_combos = sorted(att[att['player'] == target_player]['combo'].dropna().unique())
+                    else:
+                        player_combos = []
+                    combo_opts = ['All'] + list(player_combos)
+                    target_combo = st.selectbox("コンボを選択:", combo_opts)
+
+                # データの絞り込み
+                p_att = att[att['player'] == target_player]
+                if target_combo != 'All':
+                    p_att = p_att[p_att['combo'] == target_combo]
+                    title_suffix = f" (Combo: {target_combo})"
+                else:
+                    title_suffix = " (All Combos)"
+
+                if len(p_att) > 0:
+                    # マップの作成
+                    fig = create_attack_map(p_att, f"{target_player}{title_suffix}")
+                    st.pyplot(fig)
+                    
+                    # 画像データ（PNG）をメモリ(BytesIO)に保存
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format="png", bbox_inches="tight", dpi=300)
+                    buf.seek(0)
+                    
+                    # ダウンロードボタン
+                    st.download_button(
+                        label=f"📥 このマップ画像（{target_player}）をダウンロード",
+                        data=buf,
+                        file_name=f"AttackMap_{target_player}_{target_combo}.png",
+                        mime="image/png"
+                    )
+                else:
+                    st.info("指定された条件（選手・コンボ）のアタックデータがありません。")
 
             st.markdown("---")
             st.subheader("2. 戦術指標 & スタッツ")
@@ -387,7 +429,7 @@ if df is not None:
             if not HAS_FPDF:
                 st.error("PDFを出力するには `fpdf2` ライブラリが必要です。`requirements.txt` を確認してください。")
             else:
-                with st.expander("📄 PDFレポートを作成する", expanded=True):
+                with st.expander("📄 PDFレポートを作成する", expanded=False):
                     st.write("全体スタッツと**選手別のアタックマップ**を含むPDF形式のレポートを作成します。")
                     if st.button("PDFを生成"):
                         with st.spinner("PDFを生成中...（数秒かかります）"):
