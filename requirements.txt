@@ -1,6 +1,5 @@
-streamlit
-pandas
-matplotlib
-fpdf2
-streamlit-image-coordinates
-xlsxwriter
+import streamlit as st
+import pandas as pd
+import matplotlib.patches as patches
+import numpy as np
+from matplotlib import font_manager
