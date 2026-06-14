@@ -47,7 +47,6 @@ def load_data(file_source):
         df = pd.read_csv(file_source)
         df.columns = [str(c).lower() for c in df.columns]
         
-        # 数値型に変換（XY座標用）
         numeric_cols = ['start_x', 'start_y', 'end_x', 'end_y', 'video_time']
         for c in numeric_cols:
             if c in df.columns:
@@ -84,19 +83,18 @@ def extract_video_id(url):
 def draw_court(ax, type='normal'):
     # フリーゾーン (3m)
     ax.add_patch(patches.Rectangle((-3, -3), 15, 24, fc='#e0e0e0', ec='none', zorder=0))
-    # センターライン等
+    # コート
     ax.add_patch(patches.Rectangle((0, 0), 9, 18, lw=2, ec='black', fc='#FFCC99', zorder=1))
-    ax.plot([0,9], [9,9], c='red', lw=4, zorder=2)
+    ax.plot([0,9], [9,9], c='red', lw=4, zorder=2) # ネット
     ax.plot([0,9], [6,6], c='black', lw=2, zorder=2)
     ax.plot([0,9], [12,12], c='black', lw=2, zorder=2)
     
-    # 描画範囲を拡張
+    # 左右の表示幅
     ax.set_xlim(-3.5, 12.5)
-    if type == 'attack':
-        # アタック時は自陣のフロントから相手コート+奥のフリーゾーンまでを見せる
-        ax.set_ylim(4, 21.5)
-    else:
-        ax.set_ylim(-3.5, 21.5)
+    
+    # ★変更点: 分析時に「下半分のコート（着地点）」をメインにフォーカスさせる
+    # 下のエンドライン奥（-3.5）から、相手コートのアタックライン奥（13.5）までを表示
+    ax.set_ylim(-3.5, 13.5)
         
     ax.set_aspect('equal')
     ax.axis('off')
@@ -111,14 +109,13 @@ def create_attack_map(data, title):
     
     for _, r in data.iterrows():
         q = r['quality']
-        # 新しい色と意味の設定
-        if q == 'T': c, a = 'gold', 0.9      # BlockOut (Yellow/Gold)
-        elif q == '#': c, a = 'red', 0.8     # Perfect
-        elif q == '/': c, a = 'black', 0.7   # Rebound
-        elif q == '^': c, a = 'black', 0.7   # Shut/Error
-        elif q == '-': c, a = 'green', 0.8   # OneTouch (Picked up)
-        elif q == '"': c, a = 'orange', 0.6  # Good
-        else: c, a = 'blue', 0.4             # OK / Others
+        if q == 'T': c, a = 'gold', 0.9
+        elif q == '#': c, a = 'red', 0.8
+        elif q == '/': c, a = 'black', 0.7
+        elif q == '^': c, a = 'black', 0.7
+        elif q == '-': c, a = 'green', 0.8
+        elif q == '"': c, a = 'orange', 0.6
+        else: c, a = 'blue', 0.4
 
         sx, sy = r.get('start_x'), r.get('start_y')
         ex, ey = r.get('end_x'), r.get('end_y')
@@ -126,13 +123,10 @@ def create_attack_map(data, title):
         if pd.notna(sx) and pd.notna(sy) and pd.notna(ex) and pd.notna(ey):
             dx = ex - sx
             dy = ey - sy
-            # 重なりを防ぐため矢印を少し短くする (0.85倍)
             shrink = 0.85
-            # 見やすくするため、エッジの色を調整 (黄色系は黒エッジ)
             ec = 'black' if c == 'gold' else c
             ax.arrow(sx, sy, dx*shrink, dy*shrink, width=0.08, head_width=0.3, head_length=0.4, 
                      fc=c, ec=ec, alpha=a, length_includes_head=True, zorder=3)
-            # 着地点をドットで強調
             ax.scatter(sx + dx*shrink, sy + dy*shrink, color=c, s=15, zorder=4, edgecolors='black', linewidth=0.5)
 
     return fig
