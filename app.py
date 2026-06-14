@@ -45,11 +45,8 @@ st.markdown("""
 def load_data(file_source):
     try:
         df = pd.read_csv(file_source)
-        # 列名をすべて小文字に統一して扱いやすくする
         df.columns = [str(c).lower() for c in df.columns]
         
-        # ★ 修正箇所：列の順番(index)ではなく名前で判別する
-        # ダウンロード時の 'time_sec' という列名を 'video_time' に統一する
         if 'time_sec' in df.columns:
             df.rename(columns={'time_sec': 'video_time'}, inplace=True)
         
@@ -58,7 +55,6 @@ def load_data(file_source):
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors='coerce')
                 
-        # 必須列が存在しない場合のフォールバック
         if 'video_time' not in df.columns: df['video_time'] = 0
         if 'video_url' not in df.columns: df['video_url'] = ''
         
@@ -91,28 +87,20 @@ def extract_video_id(url):
     return None
 
 def draw_court(ax, type='normal'):
-    # フリーゾーン (3m)
     ax.add_patch(patches.Rectangle((-3, -3), 15, 24, fc='#e0e0e0', ec='none', zorder=0))
-    # コート
     ax.add_patch(patches.Rectangle((0, 0), 9, 18, lw=2, ec='black', fc='#FFCC99', zorder=1))
     
-    # 9分割用の薄い点線
     ax.plot([3,3], [0,18], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
     ax.plot([6,6], [0,18], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
     ax.plot([0,9], [3,3], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
     ax.plot([0,9], [15,15], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
     
-    # アタックラインとセンターライン
-    ax.plot([0,9], [9,9], c='red', lw=4, zorder=3) # ネット
+    ax.plot([0,9], [9,9], c='red', lw=4, zorder=3)
     ax.plot([0,9], [6,6], c='black', lw=2, zorder=3)
     ax.plot([0,9], [12,12], c='black', lw=2, zorder=3)
     
-    # 左右の表示幅
     ax.set_xlim(-3.5, 12.5)
-    
-    # 分析時に「下半分のコート（着地点）」をメインにフォーカス
     ax.set_ylim(-3.5, 13.5)
-        
     ax.set_aspect('equal')
     ax.axis('off')
 
@@ -221,6 +209,7 @@ if df is not None:
             st.error("データがありません。")
         else:
             att = df_analytics[df_analytics['skill']=='A']
+            rec = df_analytics[df_analytics['skill']=='R']
             
             st.subheader("1. スパイクマップ (着地点トラッキング)")
             c1, c2 = st.columns([2, 1])
@@ -242,3 +231,79 @@ if df is not None:
                 p_att = att[att['player']==target_player]
                 if len(p_att)>0: st.pyplot(create_attack_map(p_att, target_player))
                 else: st.caption("No Attack Data")
+
+            # ★ 復活させた戦術指標 & スタッツセクション
+            st.markdown("---")
+            st.subheader("2. 戦術指標 & スタッツ")
+            m1, m2 = st.columns(2)
+            
+            with m1:
+                st.markdown("**選手別レセプション成績**")
+                if not rec.empty:
+                    r_stats = []
+                    for p in rec['player'].unique():
+                        sub = rec[rec['player']==p]
+                        cnt = len(sub)
+                        eff = (len(sub[sub['quality'].isin(['#','"'])]) - len(sub[sub['quality']=='^']))/cnt*100 if cnt > 0 else 0
+                        r_stats.append({'Player':p, 'Count':cnt, 'Eff%':f"{eff:.1f}"})
+                    st.dataframe(pd.DataFrame(r_stats).sort_values('Count', ascending=False), hide_index=True)
+                else:
+                    st.info("レセプションデータがありません")
+                
+                st.markdown("**コンビ別決定率**")
+                if not att.empty:
+                    c_stats = []
+                    for c in att['combo'].value_counts().index:
+                        sub = att[att['combo']==c]
+                        if len(sub) == 0: continue
+                        k = len(sub[sub['quality'].isin(['#','T'])])
+                        c_stats.append({'Combo':c, 'Count':len(sub), 'Kill%':f"{k/len(sub)*100:.1f}"})
+                    if c_stats:
+                        st.dataframe(pd.DataFrame(c_stats).sort_values('Count', ascending=False), hide_index=True)
+                else:
+                    st.info("アタックデータがありません")
+
+            with m2:
+                st.markdown("**セッター別サイドアウト率** (Phase: R)")
+                if not att.empty and 'setter' in att.columns:
+                    k1 = att[att['phase']=='R']
+                    if not k1.empty:
+                        # #とTの両方を得点として計算
+                        so = k1.groupby('setter').apply(lambda x: len(x[x['quality'].isin(['#','T'])])/len(x)*100).reset_index(name='SO%')
+                        so['SO%'] = so['SO%'].apply(lambda x: f"{x:.1f}")
+                        st.dataframe(so, hide_index=True)
+                    else:
+                        st.caption("レセプションフェイズ(R)の攻撃データがありません")
+                
+                st.markdown("**セット別決定率**")
+                if not att.empty:
+                    sk = att.groupby('set').apply(lambda x: len(x[x['quality'].isin(['#','T'])])/len(x)*100).reset_index(name='Kill%')
+                    sk['Kill%'] = sk['Kill%'].apply(lambda x: f"{x:.1f}")
+                    st.dataframe(sk, hide_index=True)
+
+            st.markdown("---")
+            s1, s2, s3 = st.columns(3)
+            
+            fbso_rate = "0.0%"
+            if not att.empty and not rec.empty:
+                # レセプション本数に対する、Phase Rでの決定数(FBSO)
+                fbso = len(att[(att['phase']=='R') & (att['quality'].isin(['#','T']))])
+                if len(rec) > 0:
+                    fbso_rate = f"{fbso/len(rec)*100:.1f}%"
+            s1.metric("FBSO (SideOut 1st Kill)", fbso_rate)
+            
+            tr_rate = "0.0%"
+            if not att.empty:
+                # Phase S (トランジション) での決定率
+                k2 = att[att['phase']=='S']
+                if len(k2) > 0:
+                    k = len(k2[k2['quality'].isin(['#','T'])])
+                    tr_rate = f"{k/len(k2)*100:.1f}%"
+            s2.metric("Transition Kill %", tr_rate)
+            
+            err_rate = "0.0%"
+            if not att.empty:
+                # 全アタックに対するエラー率
+                e = len(att[att['quality']=='^'])
+                err_rate = f"{e/len(att)*100:.1f}%"
+            s3.metric("Attack Error %", err_rate)
