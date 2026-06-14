@@ -45,13 +45,22 @@ st.markdown("""
 def load_data(file_source):
     try:
         df = pd.read_csv(file_source)
+        # 列名をすべて小文字に統一して扱いやすくする
         df.columns = [str(c).lower() for c in df.columns]
+        
+        # ★ 修正箇所：列の順番(index)ではなく名前で判別する
+        # ダウンロード時の 'time_sec' という列名を 'video_time' に統一する
+        if 'time_sec' in df.columns:
+            df.rename(columns={'time_sec': 'video_time'}, inplace=True)
         
         numeric_cols = ['start_x', 'start_y', 'end_x', 'end_y', 'video_time']
         for c in numeric_cols:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors='coerce')
+                
+        # 必須列が存在しない場合のフォールバック
         if 'video_time' not in df.columns: df['video_time'] = 0
+        if 'video_url' not in df.columns: df['video_url'] = ''
         
         if 'phase' in df.columns: df['phase'] = df['phase'].astype(str).str.upper()
         if 'combo' in df.columns: df['combo'] = df['combo'].astype(str)
@@ -68,7 +77,8 @@ def load_data(file_source):
             if col not in numeric_cols and col not in ['my_score', 'op_score']:
                 df[col] = df[col].fillna('').astype(str)
         return df
-    except:
+    except Exception as e:
+        st.error(f"データの読み込みに失敗しました: {e}")
         return None
 
 def extract_video_id(url):
@@ -86,7 +96,7 @@ def draw_court(ax, type='normal'):
     # コート
     ax.add_patch(patches.Rectangle((0, 0), 9, 18, lw=2, ec='black', fc='#FFCC99', zorder=1))
     
-    # ★ 変更点: 9分割用の薄い点線
+    # 9分割用の薄い点線
     ax.plot([3,3], [0,18], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
     ax.plot([6,6], [0,18], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
     ax.plot([0,9], [3,3], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
@@ -199,6 +209,8 @@ if df is not None:
                         if vid_id:
                             link = f"https://www.youtube.com/watch?v={vid_id}&t={t}s"
                             st.markdown(f'<a href="{link}" target="_blank" style="background-color:#ff4b4b;color:white;padding:5px 10px;text-decoration:none;border-radius:5px;">▶ 再生 ({t}s)</a>', unsafe_allow_html=True)
+                        else:
+                            st.caption("動画リンクがありません")
                     with cols[1]:
                         st.caption(f"Set {row['set']}")
                     st.markdown("---")
