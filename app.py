@@ -1,12 +1,21 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import matplotlib.subplots as subplots
 import matplotlib.patches as patches
 import numpy as np
 from matplotlib import font_manager
 import urllib.request
 import re
 import os
+import tempfile
+import matplotlib.pyplot as plt
+
+# PDF生成用ライブラリの読み込み
+try:
+    from fpdf import FPDF
+    HAS_FPDF = True
+except ImportError:
+    HAS_FPDF = False
 
 # ==========================================
 # 0. 日本語フォント設定
@@ -137,6 +146,86 @@ def create_attack_map(data, title):
     return fig
 
 # ==========================================
+# ★ 強化版 PDF生成ロジック（選手別マップ対応）
+# ==========================================
+def generate_pdf_report(df_analytics, selected_sets, att, rec, fbso_rate, tr_rate, err_rate):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # フォントの設定
+    font_path = "ipaexg.ttf"
+    has_jp_font = os.path.exists(font_path)
+    if has_jp_font:
+        pdf.add_font('IPAexGothic', fname=font_path)
+        pdf.set_font('IPAexGothic', size=16)
+    else:
+        pdf.set_font('helvetica', size=16)
+        
+    # --- 1ページ目：全体サマリーと全体マップ ---
+    sets_str = ", ".join(selected_sets)
+    pdf.cell(0, 10, f"Volleyball Analysis Report (Sets: {sets_str})", ln=True, align='C')
+    pdf.ln(5)
+    
+    if has_jp_font: pdf.set_font('IPAexGothic', size=12)
+    else: pdf.set_font('helvetica', size=12)
+    
+    pdf.cell(0, 8, f"FBSO (SideOut 1st Kill): {fbso_rate}", ln=True)
+    pdf.cell(0, 8, f"Transition Kill %: {tr_rate}", ln=True)
+    pdf.cell(0, 8, f"Attack Error %: {err_rate}", ln=True)
+    pdf.ln(5)
+    
+    if not att.empty:
+        fig = create_attack_map(att, "Attack Map (All)")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+            fig.savefig(tmpfile.name, format="png", bbox_inches="tight", dpi=150)
+            # 全体マップは中央に大きめに配置
+            pdf.image(tmpfile.name, x=45, y=pdf.get_y(), w=120)
+        os.unlink(tmpfile.name)
+        plt.close(fig)
+        
+    # --- 2ページ目以降：選手別の個別マップ ---
+    if not att.empty:
+        # スパイクを打った選手のみ抽出
+        players = sorted(att['player'].dropna().unique())
+        if len(players) > 0:
+            pdf.add_page()
+            if has_jp_font: pdf.set_font('IPAexGothic', size=16)
+            pdf.cell(0, 10, "Player-Specific Attack Maps", ln=True, align='C')
+            pdf.ln(5)
+            
+            # グリッドレイアウト（2列で配置）用の設定
+            x_positions = [20, 115] # 左右のX座標
+            img_width = 80          # 画像の幅
+            img_height = 104        # 画像のおおよその高さ
+            
+            current_y = pdf.get_y()
+            col = 0
+            
+            for p in players:
+                p_att = att[att['player'] == p]
+                if len(p_att) == 0: continue
+                
+                fig = create_attack_map(p_att, f"{p}")
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+                    fig.savefig(tmpfile.name, format="png", bbox_inches="tight", dpi=150)
+                    pdf.image(tmpfile.name, x=x_positions[col], y=current_y, w=img_width)
+                os.unlink(tmpfile.name)
+                plt.close(fig)
+                
+                col += 1
+                # 2列埋まったら次の行へ
+                if col > 1:
+                    col = 0
+                    current_y += img_height + 10 # 下へ移動
+                    # ページの下部にはみ出す場合は改ページ
+                    if current_y > 270 - img_height:
+                        pdf.add_page()
+                        current_y = 20
+
+    return bytes(pdf.output())
+
+
+# ==========================================
 # 2. アプリ画面構築
 # ==========================================
 st.title("🏐 Volleyball Analyst Pro")
@@ -232,7 +321,6 @@ if df is not None:
                 if len(p_att)>0: st.pyplot(create_attack_map(p_att, target_player))
                 else: st.caption("No Attack Data")
 
-            # ★ 復活させた戦術指標 & スタッツセクション
             st.markdown("---")
             st.subheader("2. 戦術指標 & スタッツ")
             m1, m2 = st.columns(2)
@@ -268,7 +356,6 @@ if df is not None:
                 if not att.empty and 'setter' in att.columns:
                     k1 = att[att['phase']=='R']
                     if not k1.empty:
-                        # #とTの両方を得点として計算
                         so = k1.groupby('setter').apply(lambda x: len(x[x['quality'].isin(['#','T'])])/len(x)*100).reset_index(name='SO%')
                         so['SO%'] = so['SO%'].apply(lambda x: f"{x:.1f}")
                         st.dataframe(so, hide_index=True)
@@ -286,15 +373,12 @@ if df is not None:
             
             fbso_rate = "0.0%"
             if not att.empty and not rec.empty:
-                # レセプション本数に対する、Phase Rでの決定数(FBSO)
                 fbso = len(att[(att['phase']=='R') & (att['quality'].isin(['#','T']))])
-                if len(rec) > 0:
-                    fbso_rate = f"{fbso/len(rec)*100:.1f}%"
+                if len(rec) > 0: fbso_rate = f"{fbso/len(rec)*100:.1f}%"
             s1.metric("FBSO (SideOut 1st Kill)", fbso_rate)
             
             tr_rate = "0.0%"
             if not att.empty:
-                # Phase S (トランジション) での決定率
                 k2 = att[att['phase']=='S']
                 if len(k2) > 0:
                     k = len(k2[k2['quality'].isin(['#','T'])])
@@ -303,7 +387,34 @@ if df is not None:
             
             err_rate = "0.0%"
             if not att.empty:
-                # 全アタックに対するエラー率
                 e = len(att[att['quality']=='^'])
                 err_rate = f"{e/len(att)*100:.1f}%"
             s3.metric("Attack Error %", err_rate)
+            
+            # ==========================================
+            # 3. PDFエクスポート セクション
+            # ==========================================
+            st.markdown("---")
+            st.subheader("3. レポートの出力")
+            
+            if not HAS_FPDF:
+                st.error("PDFを出力するには `fpdf2` ライブラリが必要です。`pip install fpdf2` を実行してください。")
+            else:
+                with st.expander("📄 PDFレポートを作成する", expanded=True):
+                    st.write("全体スタッツと**選手別のアタックマップ**を含むPDF形式のレポートを作成します。")
+                    if st.button("PDFを生成"):
+                        with st.spinner("PDFを生成中...（数秒かかります）"):
+                            pdf_bytes = generate_pdf_report(
+                                df_analytics, selected_sets, att, rec, 
+                                fbso_rate, tr_rate, err_rate
+                            )
+                            st.session_state['pdf_bytes'] = pdf_bytes
+                            st.success("PDFの生成が完了しました！下のボタンからダウンロードしてください。")
+                            
+                    if 'pdf_bytes' in st.session_state:
+                        st.download_button(
+                            label="📥 PDFをダウンロード",
+                            data=st.session_state['pdf_bytes'],
+                            file_name=f"Volleyball_Analysis_Report.pdf",
+                            mime="application/pdf"
+                        )
