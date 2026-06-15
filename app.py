@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt  # ← ★これが本来あるべき正しい一文です！
+import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 from matplotlib import font_manager
@@ -150,6 +150,7 @@ def draw_court(ax, type='normal'):
     ax.axis('off')
 
 def create_attack_map(data, title):
+    import matplotlib.pyplot as plt
     kills = len(data[data['quality'].isin(['#', 'T'])])
     rate = (kills / len(data)) * 100 if len(data) > 0 else 0
     
@@ -159,10 +160,10 @@ def create_attack_map(data, title):
     
     for _, r in data.iterrows():
         q = r['quality']
+        
         if q == 'T': c, a = 'gold', 0.9
         elif q == '#': c, a = 'red', 0.8
-        elif q == '/': c, a = 'black', 0.7
-        elif q == '^': c, a = 'black', 0.7
+        elif q in ['/', '^']: c, a = 'gray', 0.7 
         elif q == '-': c, a = 'green', 0.8
         elif q == '"': c, a = 'orange', 0.6
         else: c, a = 'blue', 0.4
@@ -185,6 +186,7 @@ def create_attack_map(data, title):
 # PDF生成ロジック
 # ==========================================
 def generate_pdf_report(df_analytics, selected_sets, att, rec, fbso_rate, tr_rate, err_rate):
+    import matplotlib.pyplot as plt
     pdf = FPDF()
     pdf.add_page()
     
@@ -259,12 +261,21 @@ st.title("🏐 Volleyball Analyst Pro")
 
 with st.sidebar:
     st.header("📂 データ読み込み")
-    uploaded_file = st.file_uploader("CSVファイルをアップロード", type="csv")
+    
+    # ★ 変更点: accept_multiple_files=True を追加して複数ファイル選択を許可
+    uploaded_files = st.file_uploader("CSVファイルをアップロード (複数選択可)", type="csv", accept_multiple_files=True)
     df = None
     
-    if uploaded_file is not None:
-        df = load_data(uploaded_file)
-        st.success(f"✅ {uploaded_file.name} を読み込みました")
+    # ★ 変更点: 複数ファイルをループ処理で読み込み、1つのDataFrameに結合
+    if uploaded_files:
+        df_list = []
+        for f in uploaded_files:
+            sub_df = load_data(f)
+            if sub_df is not None:
+                df_list.append(sub_df)
+        if df_list:
+            df = pd.concat(df_list, ignore_index=True)
+            st.success(f"✅ {len(uploaded_files)} 個のファイルを読み込み、統合しました")
     else:
         st.warning("👈 ファイルをアップロードしてください")
     
@@ -338,7 +349,7 @@ if df is not None:
                 * 🔴 **# (Perfect):** 得点
                 * 🟡 **T (BlockOut):** ブロックアウト
                 * 🟢 **- (OneTouch):** ワンチ（拾われた）
-                * ⚫ **^ または /:** シャット・エラー・リバウンド
+                * 🔘 **^ または /:** シャット・エラー・リバウンド（グレー）
                 * 🟠 **" (Good):** 相手を崩した
                 """)
 
@@ -364,6 +375,7 @@ if df is not None:
                     title_suffix = " (All Combos)"
 
                 if len(p_att) > 0:
+                    import matplotlib.pyplot as plt
                     fig = create_attack_map(p_att, f"{target_player}{title_suffix}")
                     st.pyplot(fig)
                     
@@ -465,7 +477,7 @@ if df is not None:
                                 fbso_rate, tr_rate, err_rate
                             )
                             st.session_state['pdf_bytes'] = pdf_bytes
-                            st.success("PDFの生成が完了しました！下のボタンからダウンロードしてください。")
+                            st.success("PDF of the generation has completed! Please download from the button below.")
                             
                     if 'pdf_bytes' in st.session_state:
                         st.download_button(
