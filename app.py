@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.subplots as subplots
 import matplotlib.patches as patches
 import numpy as np
 from matplotlib import font_manager
