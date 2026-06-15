@@ -331,4 +331,4 @@ if st.session_state.stage < 6:
         st.subheader("Step 6: First Phase")
         c1, c2 = st.columns(2)
         if c1.button("Serve (We)"): 
-            st.session_state.all_players = [p for p in st.session_state.rotation + st
+            st.session_state.all_players = [p for p in st.session_state.rotation + st.session_state.liberos if p]
