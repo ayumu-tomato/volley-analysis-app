@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import matplotlib.subplots as subplots
 import matplotlib.patches as patches
 import numpy as np
 from matplotlib import font_manager
@@ -50,7 +50,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 座標からゾーン番号を計算する関数（反転データの再計算用）
 def coords_to_zone(lx, ly):
     if pd.isna(lx) or pd.isna(ly): return ""
     if lx < 0 or lx > 9 or ly < 0 or ly > 18: return "Out"
@@ -76,9 +75,6 @@ def load_data(file_source):
         if 'video_time' not in df.columns: df['video_time'] = 0
         if 'video_url' not in df.columns: df['video_url'] = ''
 
-        # ==============================================================
-        # ★ 保険ロジック: 読み込み時にY軸の差分（向き）だけを見て180度自動反転
-        # ==============================================================
         def normalize_direction(row):
             sx, sy = row.get('start_x'), row.get('start_y')
             ex, ey = row.get('end_x'), row.get('end_y')
@@ -86,13 +82,9 @@ def load_data(file_source):
             is_bottom_to_top = False
             if pd.notna(sx) and pd.notna(sy):
                 if pd.notna(ex) and pd.notna(ey):
-                    # 2点タップ時は、Y座標の向き（差分）だけでシンプルに判定
-                    if sy < ey: 
-                        is_bottom_to_top = True
+                    if sy < ey: is_bottom_to_top = True
                 else:
-                    # 1点タップ時（サーブ等）は、コートの手前半分から始まっているかで判定
-                    if sy < 9: 
-                        is_bottom_to_top = True
+                    if sy < 9: is_bottom_to_top = True
                     
             if is_bottom_to_top:
                 row['start_x'] = 9.0 - sx
@@ -105,14 +97,20 @@ def load_data(file_source):
             return row
             
         df = df.apply(normalize_direction, axis=1)
-        # ==============================================================
         
         if 'phase' in df.columns: df['phase'] = df['phase'].astype(str).str.upper()
-        if 'combo' in df.columns: df['combo'] = df['combo'].astype(str)
+        
+        # ==============================================================
+        # ★ 背番号などが「3.0」になる問題を修正（.0 を切り捨てる）
+        # ==============================================================
+        for col in ['set', 'player', 'setter', 'combo']:
+            if col in df.columns:
+                df[col] = df[col].astype(str).str.replace(r'\.0$', '', regex=True)
+                df[col] = df[col].replace('nan', '') # 空白がnanという文字になるのを防ぐ
         
         if 'score' in df.columns:
             try:
-                s = df['score'].str.split('-', expand=True)
+                s = df['score'].astype(str).str.split('-', expand=True)
                 if s.shape[1]>=2:
                     df['my_score'] = pd.to_numeric(s[0], errors='coerce').fillna(0)
                     df['op_score'] = pd.to_numeric(s[1], errors='coerce').fillna(0)
@@ -121,6 +119,7 @@ def load_data(file_source):
         for col in df.columns:
             if col not in numeric_cols and col not in ['my_score', 'op_score']:
                 df[col] = df[col].fillna('').astype(str)
+                df[col] = df[col].replace('nan', '')
         return df
     except Exception as e:
         st.error(f"データの読み込みに失敗しました: {e}")
@@ -139,19 +138,17 @@ def draw_court(ax, type='normal'):
     ax.add_patch(patches.Rectangle((-3, -3), 15, 24, fc='#e0e0e0', ec='none', zorder=0))
     ax.add_patch(patches.Rectangle((0, 0), 9, 18, lw=2, ec='black', fc='#FFCC99', zorder=1))
     
-    # 9分割用の薄い点線
     ax.plot([3,3], [0,18], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
     ax.plot([6,6], [0,18], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
     ax.plot([0,9], [3,3], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
     ax.plot([0,9], [15,15], c='gray', ls=':', lw=1.5, alpha=0.5, zorder=2)
     
-    # アタックラインとセンターライン
-    ax.plot([0,9], [9,9], c='red', lw=4, zorder=3) # ネット
+    ax.plot([0,9], [9,9], c='red', lw=4, zorder=3)
     ax.plot([0,9], [6,6], c='black', lw=2, zorder=3)
     ax.plot([0,9], [12,12], c='black', lw=2, zorder=3)
     
     ax.set_xlim(-3.5, 12.5)
-    ax.set_ylim(-3.5, 13.5) # 自陣（下半分）にフォーカス固定
+    ax.set_ylim(-3.5, 13.5)
     ax.set_aspect('equal')
     ax.axis('off')
 
@@ -370,6 +367,7 @@ if df is not None:
                     title_suffix = " (All Combos)"
 
                 if len(p_att) > 0:
+                    import matplotlib.pyplot as plt
                     fig = create_attack_map(p_att, f"{target_player}{title_suffix}")
                     st.pyplot(fig)
                     
