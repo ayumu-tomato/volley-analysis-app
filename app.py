@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt  # ← ★これが本来あるべき正しい一文です！
 import matplotlib.patches as patches
 import numpy as np
 from matplotlib import font_manager
@@ -99,13 +100,10 @@ def load_data(file_source):
         
         if 'phase' in df.columns: df['phase'] = df['phase'].astype(str).str.upper()
         
-        # ==============================================================
-        # ★ 背番号などが「3.0」になる問題を修正（.0 を切り捨てる）
-        # ==============================================================
         for col in ['set', 'player', 'setter', 'combo']:
             if col in df.columns:
                 df[col] = df[col].astype(str).str.replace(r'\.0$', '', regex=True)
-                df[col] = df[col].replace('nan', '') # 空白がnanという文字になるのを防ぐ
+                df[col] = df[col].replace('nan', '')
         
         if 'score' in df.columns:
             try:
@@ -366,7 +364,6 @@ if df is not None:
                     title_suffix = " (All Combos)"
 
                 if len(p_att) > 0:
-                    import matplotlib.pyplot as plt
                     fig = create_attack_map(p_att, f"{target_player}{title_suffix}")
                     st.pyplot(fig)
                     
