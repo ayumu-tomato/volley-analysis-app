@@ -386,40 +386,57 @@ if df is not None:
 
             st.markdown("---")
             st.subheader("2. ローテーション別分析 (S1〜S6)")
-            st.write("セッターの配置位置から自動判定された各ローテごとの「アタックコース（矢印）」と「攻撃の組み合わせ表」です。")
-            
-            selected_rot = st.selectbox("分析するローテーションを選択:", ['S1', 'S6', 'S5', 'S4', 'S3', 'S2'])
-            
-            rot_df = df_analytics[df_analytics['rot_phase'] == selected_rot]
+            st.write("セッターの配置位置から自動判定された各ローテごとの「アタックコース（矢印）」と「攻撃の組み合わせ表」です。サーブ時（ブレイク狙い）とレセプ時（サイドアウト）を分けて分析できます。")
+
+            sel_c1, sel_c2 = st.columns(2)
+            with sel_c1:
+                # サーブ時 = phase 'S'（自チームサーブ）、レセプ時 = phase 'R'（相手サーブ＝レセプション）
+                phase_label = st.radio("局面を選択:", ["レセプ時 (R)", "サーブ時 (S)"], horizontal=True)
+                selected_phase = 'R' if phase_label.startswith("レセプ") else 'S'
+            with sel_c2:
+                selected_rot = st.selectbox("分析するローテーションを選択:", ['S1', 'S6', 'S5', 'S4', 'S3', 'S2'])
+
+            # ローテ × 局面 でフィルタ
+            rot_df = df_analytics[(df_analytics['rot_phase'] == selected_rot) & (df_analytics['phase'] == selected_phase)]
             rot_att = rot_df[rot_df['skill'] == 'A']
-            
+
+            tag = f"{selected_rot} / {phase_label}"
+
             rot_col1, rot_col2 = st.columns([1.2, 1.0])
-            
+
             with rot_col1:
-                st.markdown(f"**【{selected_rot}ローテ】 攻撃配球マップ**")
+                st.markdown(f"**【{tag}】 攻撃配球マップ**")
                 if not rot_att.empty:
-                    rot_fig = create_attack_map(rot_att, f"{selected_rot} Rotation Attack Map")
+                    rot_fig = create_attack_map(rot_att, f"{selected_rot} ({selected_phase}) Attack Map")
                     st.pyplot(rot_fig)
-                    
+
                     buf_rot = io.BytesIO()
                     rot_fig.savefig(buf_rot, format="png", bbox_inches="tight", dpi=300)
-                    st.download_button(label=f"📥 {selected_rot}のマップ画像をダウンロード", data=buf_rot.getvalue(), file_name=f"AttackMap_{selected_rot}.png", mime="image/png")
+                    st.download_button(label=f"📥 {tag} のマップ画像をダウンロード", data=buf_rot.getvalue(), file_name=f"AttackMap_{selected_rot}_{selected_phase}.png", mime="image/png")
                 else:
-                    st.info(f"{selected_rot}ローテでのアタックデータがまだ記録されていません。")
-                    
+                    st.info(f"{tag} のアタックデータがまだ記録されていません。")
+
             with rot_col2:
-                st.markdown(f"**【{selected_rot}ローテ】 攻撃パターン一覧**")
+                st.markdown(f"**【{tag}】 攻撃パターン一覧**")
                 if not rot_att.empty:
-                    rot_summary = rot_att.groupby(['player', 'combo']).apply(
-                        lambda x: pd.Series({
-                            '打数': len(x),
-                            '決定数': len(x[x['quality'].isin(['#', 'T'])]),
-                            '決定率%': f"{(len(x[x['quality'].isin(['#', 'T'])]) / len(x) * 100):.1f}"
-                        })
-                    ).reset_index()
-                    
-                    rot_summary.rename(columns={'player': '攻撃選手 (A列)', 'combo': 'コンビ種類 (B列)'}, inplace=True)
-                    st.dataframe(rot_summary.sort_values('打数', ascending=False), hide_index=True, use_container_width=True)
+                    # ★ 1選手1行。コンビ種類は回数つき（例: X5×3, S1×2）で1セルにまとめる
+                    def combo_summary(g):
+                        counts = g['combo'].value_counts()  # 多い順
+                        parts = [f"{combo}×{n}" if n > 1 else f"{combo}" for combo, n in counts.items() if combo != ""]
+                        return ", ".join(parts)
+
+                    rot_summary = (
+                        rot_att.groupby('player')
+                        .apply(combo_summary)
+                        .reset_index(name='コンビ種類')
+                        .rename(columns={'player': '攻撃選手'})
+                    )
+                    # 打数が多い選手を上に
+                    order = rot_att['player'].value_counts().index.tolist()
+                    rot_summary['__order'] = rot_summary['攻撃選手'].apply(lambda p: order.index(p) if p in order else 999)
+                    rot_summary = rot_summary.sort_values('__order').drop(columns='__order')
+
+                    st.dataframe(rot_summary, hide_index=True, use_container_width=True)
                 else:
                     st.caption("データがありません。")
 
