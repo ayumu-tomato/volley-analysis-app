@@ -76,6 +76,9 @@ def load_data(file_source):
         if 'video_url' not in df.columns: df['video_url'] = ''
 
         # 180度自動反転（向きの統一）
+        # ★ 修正: scout側の保存ロジックと同じ条件にする（sy < 9 のガードを追加）。
+        #   これが無いと、scout が既に正規化済みのデータを再度反転してしまい、
+        #   始点がfar側(sy>=9)でさらに奥へ向かうプレーが180度ずれる。
         def normalize_direction(row):
             sx, sy = row.get('start_x'), row.get('start_y')
             ex, ey = row.get('end_x'), row.get('end_y')
@@ -83,7 +86,7 @@ def load_data(file_source):
             is_bottom_to_top = False
             if pd.notna(sx) and pd.notna(sy):
                 if pd.notna(ex) and pd.notna(ey):
-                    if sy < ey: is_bottom_to_top = True
+                    if sy < ey and sy < 9: is_bottom_to_top = True   # ★ and sy < 9 を追加
                 else:
                     if sy < 9: is_bottom_to_top = True
                     
@@ -108,15 +111,14 @@ def load_data(file_source):
                 df[col] = df[col].astype(str).str.replace(r'\.0$', '', regex=True)
                 df[col] = df[col].replace('nan', '')
         
-        # ★ 追加: セッターの配置からローテーション（S1〜S6）を自動判定する
+        # セッターの配置からローテーション（S1〜S6）を自動判定する
         def detect_rot_phase(row):
             setter = row.get('setter', '')
             if not setter or setter == 'Direct/Two' or setter == '':
                 return 'Unknown'
-            # pos1〜pos6 の列を走査してセッターの名前と一致する位置を探す
             for p in ['pos1', 'pos2', 'pos3', 'pos4', 'pos5', 'pos6']:
                 if row.get(p) == setter:
-                    return p.replace('pos', 'S')  # 例: pos1 -> S1
+                    return p.replace('pos', 'S')
             return 'Unknown'
             
         df['rot_phase'] = df.apply(detect_rot_phase, axis=1)
@@ -188,11 +190,12 @@ def create_attack_map(data, title):
         if pd.notna(sx) and pd.notna(sy) and pd.notna(ex) and pd.notna(ey):
             dx = ex - sx
             dy = ey - sy
-            shrink = 0.85
+            # ★ 修正: shrink(0.85)を撤廃し、矢印・終点マーカーを真の終点(ex,ey)に一致させる。
+            #   従来は85%地点までしか描かず、scout側の終点と一律にずれていた。
             ec = 'black' if c == 'gold' else c
-            ax.arrow(sx, sy, dx*shrink, dy*shrink, width=0.08, head_width=0.3, head_length=0.4, 
+            ax.arrow(sx, sy, dx, dy, width=0.08, head_width=0.3, head_length=0.4,
                      fc=c, ec=ec, alpha=a, length_includes_head=True, zorder=4)
-            ax.scatter(sx + dx*shrink, sy + dy*shrink, color=c, s=15, zorder=5, edgecolors='black', linewidth=0.5)
+            ax.scatter(ex, ey, color=c, s=15, zorder=5, edgecolors='black', linewidth=0.5)
 
     return fig
 
@@ -346,9 +349,6 @@ if df is not None:
             att = df_analytics[df_analytics['skill']=='A']
             rec = df_analytics[df_analytics['skill']=='R']
             
-            # ------------------------------------------
-            # 1. 全体 / 選手別スパイクマップ
-            # ------------------------------------------
             st.subheader("1. スパイクマップ (着地点トラッキング)")
             c1, c2 = st.columns([2, 1])
             with c1:
@@ -384,16 +384,12 @@ if df is not None:
                     st.download_button(label=f"📥 このマップ画像をダウンロード", data=buf.getvalue(), file_name=f"AttackMap_{target_player}_{target_combo}.png", mime="image/png")
                 else: st.info("条件に合うデータがありません")
 
-            # ------------------------------------------
-            # ★ 新機能: 3. ローテーション別分析 (S1〜S6)
-            # ------------------------------------------
             st.markdown("---")
             st.subheader("2. ローテーション別分析 (S1〜S6)")
             st.write("セッターの配置位置から自動判定された各ローテごとの「アタックコース（矢印）」と「攻撃の組み合わせ表」です。")
             
             selected_rot = st.selectbox("分析するローテーションを選択:", ['S1', 'S6', 'S5', 'S4', 'S3', 'S2'])
             
-            # 選択したローテでデータをフィルタリング
             rot_df = df_analytics[df_analytics['rot_phase'] == selected_rot]
             rot_att = rot_df[rot_df['skill'] == 'A']
             
@@ -405,7 +401,6 @@ if df is not None:
                     rot_fig = create_attack_map(rot_att, f"{selected_rot} Rotation Attack Map")
                     st.pyplot(rot_fig)
                     
-                    # 単体DL機能
                     buf_rot = io.BytesIO()
                     rot_fig.savefig(buf_rot, format="png", bbox_inches="tight", dpi=300)
                     st.download_button(label=f"📥 {selected_rot}のマップ画像をダウンロード", data=buf_rot.getvalue(), file_name=f"AttackMap_{selected_rot}.png", mime="image/png")
@@ -415,7 +410,6 @@ if df is not None:
             with rot_col2:
                 st.markdown(f"**【{selected_rot}ローテ】 攻撃パターン一覧**")
                 if not rot_att.empty:
-                    # ★ 要望通り A列:攻撃選手、B列:コンビ種類 となるようにグループ集計
                     rot_summary = rot_att.groupby(['player', 'combo']).apply(
                         lambda x: pd.Series({
                             '打数': len(x),
@@ -424,17 +418,11 @@ if df is not None:
                         })
                     ).reset_index()
                     
-                    # A列・B列の表記をわかりやすくリネーム
                     rot_summary.rename(columns={'player': '攻撃選手 (A列)', 'combo': 'コンビ種類 (B列)'}, inplace=True)
-                    
-                    # 打数が多い順にソートして表示
                     st.dataframe(rot_summary.sort_values('打数', ascending=False), hide_index=True, use_container_width=True)
                 else:
                     st.caption("データがありません。")
 
-            # ------------------------------------------
-            # 2. 戦術指標 & スタッツ
-            # ------------------------------------------
             st.markdown("---")
             st.subheader("3. チーム基本スタッツ")
             m1, m2 = st.columns(2)
@@ -500,9 +488,6 @@ if df is not None:
                 err_rate = f"{e/len(att)*100:.1f}%"
             s3.metric("Attack Error %", err_rate)
             
-            # ------------------------------------------
-            # 4. レポートの出力 (PDF)
-            # ------------------------------------------
             st.markdown("---")
             st.subheader("4. 全体レポートの出力")
             
