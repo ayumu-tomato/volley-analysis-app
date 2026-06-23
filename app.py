@@ -75,6 +75,7 @@ def load_data(file_source):
         if 'video_time' not in df.columns: df['video_time'] = 0
         if 'video_url' not in df.columns: df['video_url'] = ''
 
+        # 180度自動反転（向きの統一）
         def normalize_direction(row):
             sx, sy = row.get('start_x'), row.get('start_y')
             ex, ey = row.get('end_x'), row.get('end_y')
@@ -100,10 +101,25 @@ def load_data(file_source):
         
         if 'phase' in df.columns: df['phase'] = df['phase'].astype(str).str.upper()
         
-        for col in ['set', 'player', 'setter', 'combo']:
+        # 背番号やポジションの「.0」を消去して文字列に統一
+        target_str_cols = ['set', 'player', 'setter', 'combo', 'pos1', 'pos2', 'pos3', 'pos4', 'pos5', 'pos6']
+        for col in target_str_cols:
             if col in df.columns:
                 df[col] = df[col].astype(str).str.replace(r'\.0$', '', regex=True)
                 df[col] = df[col].replace('nan', '')
+        
+        # ★ 追加: セッターの配置からローテーション（S1〜S6）を自動判定する
+        def detect_rot_phase(row):
+            setter = row.get('setter', '')
+            if not setter or setter == 'Direct/Two' or setter == '':
+                return 'Unknown'
+            # pos1〜pos6 の列を走査してセッターの名前と一致する位置を探す
+            for p in ['pos1', 'pos2', 'pos3', 'pos4', 'pos5', 'pos6']:
+                if row.get(p) == setter:
+                    return p.replace('pos', 'S')  # 例: pos1 -> S1
+            return 'Unknown'
+            
+        df['rot_phase'] = df.apply(detect_rot_phase, axis=1)
         
         if 'score' in df.columns:
             try:
@@ -150,7 +166,6 @@ def draw_court(ax, type='normal'):
     ax.axis('off')
 
 def create_attack_map(data, title):
-    import matplotlib.pyplot as plt
     kills = len(data[data['quality'].isin(['#', 'T'])])
     rate = (kills / len(data)) * 100 if len(data) > 0 else 0
     
@@ -160,7 +175,6 @@ def create_attack_map(data, title):
     
     for _, r in data.iterrows():
         q = r['quality']
-        
         if q == 'T': c, a = 'gold', 0.9
         elif q == '#': c, a = 'red', 0.8
         elif q in ['/', '^']: c, a = 'gray', 0.7 
@@ -182,11 +196,8 @@ def create_attack_map(data, title):
 
     return fig
 
-# ==========================================
 # PDF生成ロジック
-# ==========================================
 def generate_pdf_report(df_analytics, selected_sets, att, rec, fbso_rate, tr_rate, err_rate):
-    import matplotlib.pyplot as plt
     pdf = FPDF()
     pdf.add_page()
     
@@ -261,12 +272,9 @@ st.title("🏐 Volleyball Analyst Pro")
 
 with st.sidebar:
     st.header("📂 データ読み込み")
-    
-    # ★ 変更点: accept_multiple_files=True を追加して複数ファイル選択を許可
     uploaded_files = st.file_uploader("CSVファイルをアップロード (複数選択可)", type="csv", accept_multiple_files=True)
     df = None
     
-    # ★ 変更点: 複数ファイルをループ処理で読み込み、1つのDataFrameに結合
     if uploaded_files:
         df_list = []
         for f in uploaded_files:
@@ -275,7 +283,7 @@ with st.sidebar:
                 df_list.append(sub_df)
         if df_list:
             df = pd.concat(df_list, ignore_index=True)
-            st.success(f"✅ {len(uploaded_files)} 個のファイルを読み込み、統合しました")
+            st.success(f"✅ {len(uploaded_files)} 個のファイルを統合しました")
     else:
         st.warning("👈 ファイルをアップロードしてください")
     
@@ -338,6 +346,9 @@ if df is not None:
             att = df_analytics[df_analytics['skill']=='A']
             rec = df_analytics[df_analytics['skill']=='R']
             
+            # ------------------------------------------
+            # 1. 全体 / 選手別スパイクマップ
+            # ------------------------------------------
             st.subheader("1. スパイクマップ (着地点トラッキング)")
             c1, c2 = st.columns([2, 1])
             with c1:
@@ -353,47 +364,79 @@ if df is not None:
                 * 🟠 **" (Good):** 相手を崩した
                 """)
 
-            with st.expander("👤 選手別マップを見る / ダウンロード", expanded=True):
+            with st.expander("👤 選手別マップを見る / ダウンロード", expanded=False):
                 p_col1, p_col2 = st.columns(2)
-                
-                with p_col1:
-                    target_player = st.selectbox("選手を選択:", sorted(df['player'].unique()))
-                
+                with p_col1: target_player = st.selectbox("選手を選択:", sorted(df['player'].unique()))
                 with p_col2:
-                    if not att.empty:
-                        player_combos = sorted(att[att['player'] == target_player]['combo'].dropna().unique())
-                    else:
-                        player_combos = []
+                    if not att.empty: player_combos = sorted(att[att['player'] == target_player]['combo'].dropna().unique())
+                    else: player_combos = []
                     combo_opts = ['All'] + list(player_combos)
                     target_combo = st.selectbox("コンボを選択:", combo_opts)
 
                 p_att = att[att['player'] == target_player]
-                if target_combo != 'All':
-                    p_att = p_att[p_att['combo'] == target_combo]
-                    title_suffix = f" (Combo: {target_combo})"
-                else:
-                    title_suffix = " (All Combos)"
-
+                if target_combo != 'All': p_att = p_att[p_att['combo'] == target_combo]
+                
                 if len(p_att) > 0:
-                    import matplotlib.pyplot as plt
-                    fig = create_attack_map(p_att, f"{target_player}{title_suffix}")
+                    fig = create_attack_map(p_att, f"{target_player} (Combo: {target_combo})")
                     st.pyplot(fig)
-                    
                     buf = io.BytesIO()
                     fig.savefig(buf, format="png", bbox_inches="tight", dpi=300)
-                    buf.seek(0)
-                    
-                    st.download_button(
-                        label=f"📥 このマップ画像（{target_player}）をダウンロード",
-                        data=buf,
-                        file_name=f"AttackMap_{target_player}_{target_combo}.png",
-                        mime="image/png"
-                    )
-                else:
-                    st.info("指定された条件（選手・コンボ）のアタックデータがありません。")
+                    st.download_button(label=f"📥 このマップ画像をダウンロード", data=buf.getvalue(), file_name=f"AttackMap_{target_player}_{target_combo}.png", mime="image/png")
+                else: st.info("条件に合うデータがありません")
 
+            # ------------------------------------------
+            # ★ 新機能: 3. ローテーション別分析 (S1〜S6)
+            # ------------------------------------------
             st.markdown("---")
-            st.subheader("2. 戦術指標 & スタッツ")
+            st.subheader("2. ローテーション別分析 (S1〜S6)")
+            st.write("セッターの配置位置から自動判定された各ローテごとの「アタックコース（矢印）」と「攻撃の組み合わせ表」です。")
+            
+            selected_rot = st.selectbox("分析するローテーションを選択:", ['S1', 'S6', 'S5', 'S4', 'S3', 'S2'])
+            
+            # 選択したローテでデータをフィルタリング
+            rot_df = df_analytics[df_analytics['rot_phase'] == selected_rot]
+            rot_att = rot_df[rot_df['skill'] == 'A']
+            
+            rot_col1, rot_col2 = st.columns([1.2, 1.0])
+            
+            with rot_col1:
+                st.markdown(f"**【{selected_rot}ローテ】 攻撃配球マップ**")
+                if not rot_att.empty:
+                    rot_fig = create_attack_map(rot_att, f"{selected_rot} Rotation Attack Map")
+                    st.pyplot(rot_fig)
+                    
+                    # 単体DL機能
+                    buf_rot = io.BytesIO()
+                    rot_fig.savefig(buf_rot, format="png", bbox_inches="tight", dpi=300)
+                    st.download_button(label=f"📥 {selected_rot}のマップ画像をダウンロード", data=buf_rot.getvalue(), file_name=f"AttackMap_{selected_rot}.png", mime="image/png")
+                else:
+                    st.info(f"{selected_rot}ローテでのアタックデータがまだ記録されていません。")
+                    
+            with rot_col2:
+                st.markdown(f"**【{selected_rot}ローテ】 攻撃パターン一覧**")
+                if not rot_att.empty:
+                    # ★ 要望通り A列:攻撃選手、B列:コンビ種類 となるようにグループ集計
+                    rot_summary = rot_att.groupby(['player', 'combo']).apply(
+                        lambda x: pd.Series({
+                            '打数': len(x),
+                            '決定数': len(x[x['quality'].isin(['#', 'T'])]),
+                            '決定率%': f"{(len(x[x['quality'].isin(['#', 'T'])]) / len(x) * 100):.1f}"
+                        })
+                    ).reset_index()
+                    
+                    # A列・B列の表記をわかりやすくリネーム
+                    rot_summary.rename(columns={'player': '攻撃選手 (A列)', 'combo': 'コンビ種類 (B列)'}, inplace=True)
+                    
+                    # 打数が多い順にソートして表示
+                    st.dataframe(rot_summary.sort_values('打数', ascending=False), hide_index=True, use_container_width=True)
+                else:
+                    st.caption("データがありません。")
+
+            # ------------------------------------------
+            # 2. 戦術指標 & スタッツ
+            # ------------------------------------------
+            st.markdown("---")
+            st.subheader("3. チーム基本スタッツ")
             m1, m2 = st.columns(2)
             
             with m1:
@@ -406,10 +449,9 @@ if df is not None:
                         eff = (len(sub[sub['quality'].isin(['#','"'])]) - len(sub[sub['quality']=='^']))/cnt*100 if cnt > 0 else 0
                         r_stats.append({'Player':p, 'Count':cnt, 'Eff%':f"{eff:.1f}"})
                     st.dataframe(pd.DataFrame(r_stats).sort_values('Count', ascending=False), hide_index=True)
-                else:
-                    st.info("レセプションデータがありません")
+                else: st.info("No Reception Data")
                 
-                st.markdown("**コンビ別決定率**")
+                st.markdown("**コンビ別決定率 (チーム全体)**")
                 if not att.empty:
                     c_stats = []
                     for c in att['combo'].value_counts().index:
@@ -417,10 +459,8 @@ if df is not None:
                         if len(sub) == 0: continue
                         k = len(sub[sub['quality'].isin(['#','T'])])
                         c_stats.append({'Combo':c, 'Count':len(sub), 'Kill%':f"{k/len(sub)*100:.1f}"})
-                    if c_stats:
-                        st.dataframe(pd.DataFrame(c_stats).sort_values('Count', ascending=False), hide_index=True)
-                else:
-                    st.info("アタックデータがありません")
+                    if c_stats: st.dataframe(pd.DataFrame(c_stats).sort_values('Count', ascending=False), hide_index=True)
+                else: st.info("No Attack Data")
 
             with m2:
                 st.markdown("**セッター別サイドアウト率** (Phase: R)")
@@ -430,8 +470,7 @@ if df is not None:
                         so = k1.groupby('setter').apply(lambda x: len(x[x['quality'].isin(['#','T'])])/len(x)*100).reset_index(name='SO%')
                         so['SO%'] = so['SO%'].apply(lambda x: f"{x:.1f}")
                         st.dataframe(so, hide_index=True)
-                    else:
-                        st.caption("レセプションフェイズ(R)の攻撃データがありません")
+                    else: st.caption("No SideOut Data")
                 
                 st.markdown("**セット別決定率**")
                 if not att.empty:
@@ -441,7 +480,6 @@ if df is not None:
 
             st.markdown("---")
             s1, s2, s3 = st.columns(3)
-            
             fbso_rate = "0.0%"
             if not att.empty and not rec.empty:
                 fbso = len(att[(att['phase']=='R') & (att['quality'].isin(['#','T']))])
@@ -462,27 +500,21 @@ if df is not None:
                 err_rate = f"{e/len(att)*100:.1f}%"
             s3.metric("Attack Error %", err_rate)
             
+            # ------------------------------------------
+            # 4. レポートの出力 (PDF)
+            # ------------------------------------------
             st.markdown("---")
-            st.subheader("3. レポートの出力")
+            st.subheader("4. 全体レポートの出力")
             
             if not HAS_FPDF:
-                st.error("PDFを出力するには `fpdf2` ライブラリが必要です。`requirements.txt` を確認してください。")
+                st.error("PDFを出力するには `fpdf2` ライブラリが必要です。")
             else:
                 with st.expander("📄 PDFレポートを作成する", expanded=False):
-                    st.write("全体スタッツと選手別のアタックマップを含むPDF形式のレポートを作成します。")
                     if st.button("PDFを生成"):
-                        with st.spinner("PDFを生成中...（数秒かかります）"):
-                            pdf_bytes = generate_pdf_report(
-                                df_analytics, selected_sets, att, rec, 
-                                fbso_rate, tr_rate, err_rate
-                            )
+                        with st.spinner("PDFを生成中..."):
+                            pdf_bytes = generate_pdf_report(df_analytics, selected_sets, att, rec, fbso_rate, tr_rate, err_rate)
                             st.session_state['pdf_bytes'] = pdf_bytes
-                            st.success("PDF of the generation has completed! Please download from the button below.")
+                            st.success("PDFの生成が完了しました！")
                             
                     if 'pdf_bytes' in st.session_state:
-                        st.download_button(
-                            label="📥 PDFをダウンロード",
-                            data=st.session_state['pdf_bytes'],
-                            file_name=f"Volleyball_Analysis_Report.pdf",
-                            mime="application/pdf"
-                        )
+                        st.download_button(label="📥 PDFをダウンロード", data=st.session_state['pdf_bytes'], file_name="Volleyball_Analysis_Report.pdf", mime="application/pdf")
