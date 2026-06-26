@@ -167,6 +167,62 @@ def draw_court(ax, type='normal'):
     ax.set_aspect('equal')
     ax.axis('off')
 
+def create_lineup_img(positions, title=""):
+    """ローテ配置図。ネットは下向き（コート下端がネット＝前衛側）。
+    positions: {'pos1':名前, ... 'pos6':名前}
+    並び（上=後衛、下=前衛/ネット際）:
+        後衛: ⑤pos5  ⑥pos6  ①pos1
+        前衛: ④pos4  ③pos3  ②pos2
+    """
+    fig, ax = plt.subplots(figsize=(4, 4.2))
+    # コート枠
+    ax.add_patch(patches.Rectangle((0, 0), 9, 6, lw=2, ec='black', fc='#FFCC99', zorder=1))
+    # ネット（下端を太線で）
+    ax.plot([0, 9], [0, 0], c='red', lw=5, zorder=3)
+    ax.text(4.5, -0.6, "▼ NET ▼", ha='center', va='top', fontsize=11, fontweight='bold', color='red')
+    # アタックライン（前衛と後衛の境界の目安）
+    ax.plot([0, 9], [2, 2], c='gray', ls='--', lw=1.2, alpha=0.7, zorder=2)
+    # セル区切り（縦）
+    ax.plot([3, 3], [0, 6], c='gray', ls=':', lw=1, alpha=0.5, zorder=2)
+    ax.plot([6, 6], [0, 6], c='gray', ls=':', lw=1, alpha=0.5, zorder=2)
+    ax.plot([0, 9], [3, 3], c='gray', ls=':', lw=1, alpha=0.5, zorder=2)
+
+    circ = {'pos1':'①','pos2':'②','pos3':'③','pos4':'④','pos5':'⑤','pos6':'⑥'}
+    # (x中心, y中心, posキー) … 上段=後衛(y=4.5), 下段=前衛(y=1.5)
+    layout = [
+        (1.5, 4.5, 'pos5'), (4.5, 4.5, 'pos6'), (7.5, 4.5, 'pos1'),
+        (1.5, 1.5, 'pos4'), (4.5, 1.5, 'pos3'), (7.5, 1.5, 'pos2'),
+    ]
+    for cx, cy, pk in layout:
+        name = str(positions.get(pk, '') or '—')
+        is_server = (pk == 'pos1')
+        face = '#ffe1e1' if cy > 3 else '#ffffff'   # 後衛うっすら / 前衛白
+        edge = 'red' if is_server else '#555'
+        lw = 3 if is_server else 1.2
+        ax.add_patch(patches.Rectangle((cx-1.3, cy-1.2), 2.6, 2.4, fc=face, ec=edge, lw=lw, zorder=4))
+        ax.text(cx, cy+0.45, circ[pk], ha='center', va='center', fontsize=16, fontweight='bold',
+                color='red' if is_server else '#333', zorder=5)
+        ax.text(cx, cy-0.45, name, ha='center', va='center', fontsize=13, fontweight='bold', zorder=5)
+
+    if title:
+        ax.set_title(title, fontsize=12, fontweight='bold')
+    ax.set_xlim(-0.5, 9.5)
+    ax.set_ylim(-1.5, 6.8)
+    ax.set_aspect('equal')
+    ax.axis('off')
+    return fig
+
+def get_rotation_positions(rot_df):
+    """ローテ該当データから pos1〜pos6 の代表配置を取得（最頻値）。"""
+    pos = {}
+    for p in ['pos1', 'pos2', 'pos3', 'pos4', 'pos5', 'pos6']:
+        if p in rot_df.columns:
+            vals = rot_df[p][rot_df[p].astype(str) != '']
+            pos[p] = vals.mode().iloc[0] if not vals.empty else ''
+        else:
+            pos[p] = ''
+    return pos
+
 def create_attack_map(data, title):
     kills = len(data[data['quality'].isin(['#', 'T'])])
     rate = (kills / len(data)) * 100 if len(data) > 0 else 0
@@ -401,6 +457,20 @@ if df is not None:
             rot_att = rot_df[rot_df['skill'] == 'A']
 
             tag = f"{selected_rot} / {phase_label}"
+
+            # ★ 選択ローテの選手配置図（ネット下向き＝上側コートが解析対象チーム）
+            #    配置は局面に依らず、そのローテ全体(rot_phase一致)から取得
+            rot_all = df_analytics[df_analytics['rot_phase'] == selected_rot]
+            lineup_src = rot_all if not rot_all.empty else rot_df
+            if not lineup_src.empty:
+                positions = get_rotation_positions(lineup_src)
+                if any(str(v) != '' for v in positions.values()):
+                    lc1, lc2 = st.columns([1.0, 1.4])
+                    with lc1:
+                        st.markdown(f"**【{selected_rot}】 選手配置**")
+                        st.pyplot(create_lineup_img(positions, title=f"{selected_rot} Lineup"))
+                    with lc2:
+                        st.caption("①〜⑥はコート上のローテ位置です。①（赤枠）が現在のサーバー位置。下端がネット側（前衛 ②③④）、上段が後衛（⑤⑥①）。上側コート全体が解析対象チームです。")
 
             rot_col1, rot_col2 = st.columns([1.2, 1.0])
 
