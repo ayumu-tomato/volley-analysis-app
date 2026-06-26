@@ -413,11 +413,11 @@ if df is not None:
             with c2:
                 st.markdown("""
                 **【Legend】**
-                * 🔴 **# (Perfect):** 得点
-                * 🟡 **T (BlockOut):** ブロックアウト
-                * 🟢 **- (OneTouch):** ワンチ（拾われた）
-                * 🔘 **^ または /:** シャット・エラー・リバウンド（グレー）
-                * 🟠 **" (Good):** 相手を崩した
+                * 🔴 **# (Perfect):** ノーかつ決定
+                * 🟡 **T (BlockOut):** ワンチかつ決定
+                * 🟢 **- (OneTouch):** ワンチかつ継続
+                * 🔘 **^ または /:** シャット・エラー・アウト
+                * 🟠 **" (Good):** 相手を崩した（未使用）
                 """)
 
             with st.expander("👤 選手別マップを見る / ダウンロード", expanded=False):
