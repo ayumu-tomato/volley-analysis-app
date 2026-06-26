@@ -450,7 +450,16 @@ if df is not None:
                 phase_label = st.radio("局面を選択:", ["レセプ時 (R)", "サーブ時 (S)"], horizontal=True)
                 selected_phase = 'R' if phase_label.startswith("レセプ") else 'S'
             with sel_c2:
-                selected_rot = st.selectbox("分析するローテーションを選択:", ['S1', 'S6', 'S5', 'S4', 'S3', 'S2'])
+                # ★ 最初に記録されたローテを起点に、ローテ順(番号が1ずつ減る方向 S1→S6→S5...)で並べる
+                ROT_CYCLE = ['S1', 'S6', 'S5', 'S4', 'S3', 'S2']  # ローテーションが進む順
+                valid_rots = df_analytics[df_analytics['rot_phase'].isin(ROT_CYCLE)]['rot_phase']
+                if not valid_rots.empty:
+                    first_rot = valid_rots.iloc[0]  # データ最初の有効ローテ
+                    start = ROT_CYCLE.index(first_rot)
+                    rot_options = ROT_CYCLE[start:] + ROT_CYCLE[:start]  # 起点から1周
+                else:
+                    rot_options = ROT_CYCLE
+                selected_rot = st.selectbox("分析するローテーションを選択:", rot_options)
 
             # ローテ × 局面 でフィルタ
             rot_df = df_analytics[(df_analytics['rot_phase'] == selected_rot) & (df_analytics['phase'] == selected_phase)]
