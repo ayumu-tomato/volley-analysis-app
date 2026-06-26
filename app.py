@@ -168,11 +168,11 @@ def draw_court(ax, type='normal'):
     ax.axis('off')
 
 def create_lineup_img(positions, title=""):
-    """ローテ配置図。ネットは下向き（コート下端がネット＝前衛側）。
+    """ローテ配置図。ネットは下向き＝コートを180°回転（上側コートが解析対象チーム）。
     positions: {'pos1':名前, ... 'pos6':名前}
     並び（上=後衛、下=前衛/ネット際）:
-        後衛: ⑤pos5  ⑥pos6  ①pos1
-        前衛: ④pos4  ③pos3  ②pos2
+        後衛: ①pos1  ⑥pos6  ⑤pos5
+        前衛: ②pos2  ③pos3  ④pos4
     """
     fig, ax = plt.subplots(figsize=(4, 4.2))
     # コート枠
@@ -188,15 +188,15 @@ def create_lineup_img(positions, title=""):
     ax.plot([0, 9], [3, 3], c='gray', ls=':', lw=1, alpha=0.5, zorder=2)
 
     circ = {'pos1':'①','pos2':'②','pos3':'③','pos4':'④','pos5':'⑤','pos6':'⑥'}
-    # (x中心, y中心, posキー) … 上段=後衛(y=4.5), 下段=前衛(y=1.5)
+    # (x中心, y中心, posキー) … 上段=後衛(y=4.5): ①⑥⑤ / 下段=前衛(y=1.5): ②③④
     layout = [
-        (1.5, 4.5, 'pos5'), (4.5, 4.5, 'pos6'), (7.5, 4.5, 'pos1'),
-        (1.5, 1.5, 'pos4'), (4.5, 1.5, 'pos3'), (7.5, 1.5, 'pos2'),
+        (1.5, 4.5, 'pos1'), (4.5, 4.5, 'pos6'), (7.5, 4.5, 'pos5'),
+        (1.5, 1.5, 'pos2'), (4.5, 1.5, 'pos3'), (7.5, 1.5, 'pos4'),
     ]
     for cx, cy, pk in layout:
         name = str(positions.get(pk, '') or '—')
         is_server = (pk == 'pos1')
-        face = '#ffe1e1' if cy > 3 else '#ffffff'   # 後衛うっすら / 前衛白
+        face = '#ffe1e1' if cy < 3 else '#ffffff'   # 前衛(ネット側/下段)をうっすらピンク
         edge = 'red' if is_server else '#555'
         lw = 3 if is_server else 1.2
         ax.add_patch(patches.Rectangle((cx-1.3, cy-1.2), 2.6, 2.4, fc=face, ec=edge, lw=lw, zorder=4))
@@ -470,7 +470,7 @@ if df is not None:
                         st.markdown(f"**【{selected_rot}】 選手配置**")
                         st.pyplot(create_lineup_img(positions, title=f"{selected_rot} Lineup"))
                     with lc2:
-                        st.caption("①〜⑥はコート上のローテ位置です。①（赤枠）が現在のサーバー位置。下端がネット側（前衛 ②③④）、上段が後衛（⑤⑥①）。上側コート全体が解析対象チームです。")
+                        st.caption("①〜⑥はコート上のローテ位置です。①（赤枠）が現在のサーバー位置。下端がネット側（前衛 ②③④）、上段が後衛（①⑥⑤）。上側コート全体が解析対象チームです。")
 
             rot_col1, rot_col2 = st.columns([1.2, 1.0])
 
